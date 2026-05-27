@@ -26,8 +26,7 @@ from backup.daily_backup import run_backup
 # Near top with imports
 from dashboard import dashboard_bp
 
-# Right after app = Flask(__name__)
-app.register_blueprint(dashboard_bp)
+
 
 # ── Logging ───────────────────────────────────────────────────
 logging.basicConfig(
@@ -40,6 +39,8 @@ IST    = pytz.timezone("Asia/Kolkata")
 
 # ── Flask ─────────────────────────────────────────────────────
 app = Flask(__name__)
+# Right after app = Flask(__name__)
+app.register_blueprint(dashboard_bp)
 
 # Globals — collector handles
 _buffer: TickBuffer | None         = None
