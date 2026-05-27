@@ -1,9 +1,28 @@
 """
-collector/tick_collector.py — Upstox V3 WebSocket
-CHANGED: mode switched from 'ltpc' to 'full' to capture traded volume
+collector/tick_collector.py — Upstox V3 WebSocket (FIXED)
+
+ROOT CAUSE of syms=0:
+  1. Auth: Current code fetches a redirect URL. The V3 SDK connects directly to
+     wss://api.upstox.com/v3/feed/market-data-feed with an Authorization header.
+     The redirect URL approach works for opening the connection but the server
+     still expects the header on the actual WS handshake.
+
+  2. Subscribe opcode: The V3 protocol requires the subscribe JSON to be sent as
+     BINARY (OPCODE_BINARY), not as text. Sending it as text is silently ignored
+     by the server — the subscription never registers.
+
+  3. Message encoding: V3 sends Protobuf binary frames, NOT JSON.
+     The old code did message.decode('utf-8') + json.loads() on binary protobuf,
+     which always raised an exception caught silently at DEBUG level — so every
+     single tick was discarded without a visible error.
+
+FIX: Use Authorization header on fixed WS URL, send subscribe as binary,
+     decode messages with MarketDataFeedV3_pb2 + json_format.MessageToDict().
 """
 
-import ssl, json, time, logging, threading, websocket, requests
+import ssl, json, time, logging, threading
+import websocket
+import requests
 from datetime import datetime
 import pytz, sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
@@ -11,12 +30,18 @@ from config import WATCHLIST, NIFTY_INDEX_KEY
 from collector.tick_buffer import TickBuffer
 from utils.token_manager import get_access_token
 
-logger = logging.getLogger(__name__)
-IST    = pytz.timezone("Asia/Kolkata")
+# Protobuf decoder — bundled with upstox-python-sdk (already in requirements via pip)
+from upstox_client.feeder.proto import MarketDataFeedV3_pb2 as pb
+from google.protobuf import json_format
+
+logger  = logging.getLogger(__name__)
+IST     = pytz.timezone("Asia/Kolkata")
 ALL_KEYS = list(WATCHLIST.values()) + [NIFTY_INDEX_KEY]
 
 KEY_TO_SYM = {v: k for k, v in WATCHLIST.items()}
 KEY_TO_SYM[NIFTY_INDEX_KEY] = "NIFTY"
+
+WS_URL = "wss://api.upstox.com/v3/feed/market-data-feed"
 
 
 class TickCollector:
@@ -36,22 +61,13 @@ class TickCollector:
         if self.ws:
             self.ws.close()
 
-    def _get_ws_url(self) -> str:
-        token = get_access_token()
-        r = requests.get(
-            "https://api.upstox.com/v3/feed/market-data-feed/authorize",
-            headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
-        )
-        if r.status_code != 200:
-            raise RuntimeError(f"WS auth failed: {r.text}")
-        return r.json()["data"]["authorizedRedirectUri"]
-
     def _loop(self):
         while self._running:
             try:
-                url = self._get_ws_url()
+                token = get_access_token()
                 self.ws = websocket.WebSocketApp(
-                    url,
+                    WS_URL,
+                    header={"Authorization": f"Bearer {token}"},   # FIX 1: header auth
                     on_open=self._on_open,
                     on_message=self._on_message,
                     on_error=lambda ws, e: logger.error(f"WS error: {e}"),
@@ -65,58 +81,51 @@ class TickCollector:
                 time.sleep(5)
 
     def _on_open(self, ws):
-        ws.send(json.dumps({
+        # FIX 2: send subscribe as BINARY opcode, not text
+        subscribe_msg = json.dumps({
             "guid": "nc-v1",
             "method": "sub",
             "data": {
-                "mode": "full",          # CHANGED: was 'ltpc' — full mode includes volume
+                "mode": "full",
                 "instrumentKeys": ALL_KEYS,
             },
-        }))
+        }).encode("utf-8")
+        ws.send(subscribe_msg, opcode=websocket.ABNF.OPCODE_BINARY)
         logger.info(f"✅ WS connected | mode=full | {len(ALL_KEYS)} instruments")
 
     def _on_message(self, ws, message):
+        # FIX 3: decode Protobuf binary, not JSON
         try:
-            if isinstance(message, bytes):
-                message = message.decode("utf-8")
-            feeds = json.loads(message).get("feeds", {})
-            ts    = datetime.now(IST)
+            decoded = pb.FeedResponse.FromString(message)
+            data    = json_format.MessageToDict(decoded)
+            feeds   = data.get("feeds", {})
+            ts      = datetime.now(IST)
 
             for key, feed in feeds.items():
                 sym = KEY_TO_SYM.get(key)
                 if not sym:
                     continue
 
-                # full mode — primary data block
-                ff = feed.get("ff", {})
-                mktff = ff.get("marketFF", ff.get("indexFF", {}))
+                # V3 decoded dict structure:
+                # feed -> fullFeed -> marketFF (equities) or indexFF (indices)
+                full_feed = feed.get("fullFeed", {})
+                mktff     = full_feed.get("marketFF") or full_feed.get("indexFF") or {}
 
-                ltpc = mktff.get("ltpc", {})
-                ltp  = ltpc.get("ltp")
-                if not ltp:
-                    # fallback to top-level ltpc
-                    ltp = (feed.get("ltpc") or {}).get("ltp")
+                ltpc_data = mktff.get("ltpc", {})
+                ltp       = ltpc_data.get("ltp")
                 if not ltp:
                     continue
 
-                # Volume from full mode
-                # Upstox full mode provides 'vtt' (volume traded today cumulative)
-                # and 'ltq' (last traded quantity per tick)
-                vol_data  = mktff.get("marketOHLC", {}).get("ohlc", [{}])
-                ltq       = int(mktff.get("ltq", 0) or 0)    # last traded qty this tick
-                cum_vol   = int(mktff.get("vtt", 0) or 0)    # cumulative volume today
+                # ltq and vtt come as strings from MessageToDict (int64 proto fields)
+                ltq     = int(ltpc_data.get("ltq", 0) or 0)
+                cum_vol = int(mktff.get("vtt", 0) or 0)
 
-                # Bid/ask side inference from best bid/ask
-                depth = mktff.get("marketDepth", {})
-                best_ask = None
-                best_bid = None
-                if depth:
-                    asks = depth.get("ask", [])
-                    bids = depth.get("bid", [])
-                    best_ask = float(asks[0].get("price", 0)) if asks else None
-                    best_bid = float(bids[0].get("price", 0)) if bids else None
+                # Bid/ask depth from marketLevel.bidAskQuote list
+                baq      = (mktff.get("marketLevel") or {}).get("bidAskQuote", [])
+                best_bid = float(baq[0].get("bidP", 0)) if baq else None
+                best_ask = float(baq[0].get("askP", 0)) if baq else None
 
-                # Determine trade side: ltp >= ask → buy, ltp <= bid → sell
+                # Side inference
                 is_buy = None
                 if best_ask and best_bid:
                     if float(ltp) >= best_ask:
@@ -134,4 +143,4 @@ class TickCollector:
                 )
 
         except Exception as e:
-            logger.debug(f"Message parse: {e}")
+            logger.warning(f"Message parse error: {e}")
