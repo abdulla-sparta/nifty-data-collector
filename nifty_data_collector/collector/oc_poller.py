@@ -1,8 +1,8 @@
 """
 collector/oc_poller.py
-FIX 1: Added explicit error logging in _write() so DB errors are visible in Railway logs
-FIX 2: Added fallback INSERT without atm_ce_vol/atm_pe_vol if columns don't exist yet
-FIX 3: _poll() now logs the actual API response status and error body
+FIX: invalidate expiry cache on start so fresh expiry is fetched from Upstox
+FIX: pass token to nearest_expiry() to avoid double token fetch
+FIX: log full error details, fallback INSERT without volume columns
 """
 
 import time, logging, threading, requests
@@ -11,7 +11,7 @@ import pytz, sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from config import OC_POLL_INTERVAL_SEC, NIFTY_STRIKE_STEP
 from utils.token_manager import get_access_token
-from utils.market import is_market_open, nearest_expiry
+from utils.market import is_market_open, nearest_expiry, invalidate_expiry_cache
 from db.connection import DBConn
 
 logger = logging.getLogger(__name__)
@@ -27,6 +27,8 @@ class OCPoller:
         self._prev_pe_oi  = None
 
     def start(self):
+        # Invalidate expiry cache so first poll fetches fresh from Upstox
+        invalidate_expiry_cache()
         self._running = True
         self._thread  = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
@@ -49,7 +51,9 @@ class OCPoller:
 
     def _poll(self):
         token  = get_access_token()
-        expiry = nearest_expiry()
+
+        # Pass token so nearest_expiry reuses it (no extra API call)
+        expiry = nearest_expiry(token=token)
 
         logger.info(f"OC polling expiry={expiry}")
 
@@ -63,7 +67,6 @@ class OCPoller:
             timeout=10,
         )
 
-        # FIX: log actual error instead of silently returning
         if r.status_code != 200:
             logger.error(f"OC API error {r.status_code}: {r.text[:300]}")
             return
@@ -72,10 +75,12 @@ class OCPoller:
         chain = data.get("data", [])
 
         if not chain:
-            logger.warning(f"OC chain empty. Full response: {str(data)[:300]}")
+            logger.warning(f"OC chain empty for expiry={expiry}. Response: {str(data)[:300]}")
+            # If empty, invalidate expiry cache — expiry may have shifted
+            invalidate_expiry_cache()
             return
 
-        logger.info(f"OC chain received: {len(chain)} strikes")
+        logger.info(f"OC chain received: {len(chain)} strikes for expiry={expiry}")
 
         ts  = datetime.now(IST).replace(second=0, microsecond=0)
         agg = self._aggregate(chain)
@@ -84,7 +89,7 @@ class OCPoller:
             agg["expiry"] = expiry
             self._write(agg)
         else:
-            logger.warning("OC aggregate returned None — no nifty_ltp in chain?")
+            logger.warning("OC aggregate returned None — no nifty_ltp found in chain")
 
     def _aggregate(self, chain: list) -> dict | None:
         nifty_ltp = None
@@ -157,9 +162,6 @@ class OCPoller:
         }
 
     def _write(self, agg: dict):
-        # FIX: Try full INSERT first (with volume columns).
-        # If it fails due to missing columns, fall back to INSERT without them.
-        # This handles the case where migration hasn't run yet on Railway.
         sql_full = """
             INSERT INTO option_chain_agg (
                 ts, expiry, nifty_ltp, atm_strike,
@@ -179,7 +181,6 @@ class OCPoller:
                 %(max_pain_strike)s, %(pcr_5snap_chg)s
             ) ON CONFLICT DO NOTHING
         """
-
         sql_fallback = """
             INSERT INTO option_chain_agg (
                 ts, expiry, nifty_ltp, atm_strike,
@@ -197,24 +198,23 @@ class OCPoller:
                 %(max_pain_strike)s, %(pcr_5snap_chg)s
             ) ON CONFLICT DO NOTHING
         """
-
         try:
             with DBConn() as conn:
                 conn.cursor().execute(sql_full, agg)
             logger.info(
                 f"OC ✅ {agg['ts'].strftime('%H:%M')} | "
-                f"expiry={agg['expiry']} | "
-                f"PCR={agg['pcr']} | ATM={agg['atm_strike']} | "
+                f"expiry={agg['expiry']} | PCR={agg['pcr']} | "
+                f"ATM={agg['atm_strike']} | "
                 f"CE_OI={agg['total_ce_oi']:,} PE_OI={agg['total_pe_oi']:,}"
             )
         except Exception as e:
             if "atm_ce_vol" in str(e) or "atm_pe_vol" in str(e) or "column" in str(e).lower():
-                logger.warning(f"Volume columns missing — using fallback INSERT. Run db.schema to migrate.")
+                logger.warning("Volume columns missing — using fallback INSERT. Run: python -m db.schema")
                 try:
                     with DBConn() as conn:
                         conn.cursor().execute(sql_fallback, agg)
-                    logger.info(f"OC ✅ (fallback) {agg['ts'].strftime('%H:%M')} PCR={agg['pcr']}")
+                    logger.info(f"OC ✅ fallback {agg['ts'].strftime('%H:%M')} PCR={agg['pcr']}")
                 except Exception as e2:
-                    logger.error(f"OC fallback INSERT also failed: {e2}", exc_info=True)
+                    logger.error(f"OC fallback INSERT failed: {e2}", exc_info=True)
             else:
                 logger.error(f"OC write failed: {e}", exc_info=True)

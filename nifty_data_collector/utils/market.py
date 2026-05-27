@@ -1,14 +1,17 @@
 """
-utils/market.py — Market hours, trading day, expiry detection
-FIX: nearest_expiry() was returning next Thursday even when today IS Thursday
-     Now correctly returns today if it's Thursday (expiry day),
-     otherwise returns the next Thursday.
-     Also fixed: Tuesday May 27 was returning May 28 (Wednesday) — off by one.
+utils/market.py
+FIX: Added May 28 2026 (Bakri Id) to NSE holidays
+FIX: nearest_expiry() now fetches live expiry list from Upstox API
+     instead of calculating — handles all holiday shifts automatically
 """
 
 from datetime import datetime, time, date, timedelta
+from typing import Optional
 import pytz
+import requests
+import logging
 
+logger = logging.getLogger(__name__)
 IST = pytz.timezone("Asia/Kolkata")
 
 NSE_HOLIDAYS = {
@@ -19,12 +22,13 @@ NSE_HOLIDAYS = {
     date(2025, 10, 25),date(2025, 11, 5), date(2025, 12, 25),
     date(2026, 1, 26), date(2026, 3, 20), date(2026, 4, 2),
     date(2026, 4, 14), date(2026, 4, 15), date(2026, 5, 1),
+    date(2026, 5, 28),  # ← ADDED: Bakri Id
     date(2026, 8, 15), date(2026, 10, 2), date(2026, 11, 14),
     date(2026, 12, 25),
 }
 
-def now_ist():      return datetime.now(IST)
-def today_ist():    return now_ist().date()
+def now_ist():   return datetime.now(IST)
+def today_ist(): return now_ist().date()
 
 def is_trading_day(d: date = None) -> bool:
     d = d or today_ist()
@@ -55,32 +59,145 @@ def minutes_to_close() -> int:
 
 def session_zone() -> int:
     m = minutes_since_open()
-    if m <= 30:                  return 1   # opening
-    if minutes_to_close() <= 30: return 3   # closing
-    return 2                                # mid
+    if m <= 30:                  return 1
+    if minutes_to_close() <= 30: return 3
+    return 2
 
 def is_expiry_day() -> bool:
-    return today_ist().weekday() == 3   # Thursday = 3
-
-def nearest_expiry() -> date:
-    """
-    Returns the nearest Nifty weekly expiry (Thursday).
-    FIX: use (3 - weekday) % 7 gives 0 on Thursday itself,
-         which we now correctly handle by returning today.
-         Previous code forced days=7 when days==0, skipping today's expiry.
-
-    Examples:
-        Monday    (0) → days_ahead = 3  → this Thursday
-        Tuesday   (1) → days_ahead = 2  → this Thursday
-        Wednesday (2) → days_ahead = 1  → tomorrow Thursday
-        Thursday  (3) → days_ahead = 0  → today (expiry day!)
-        Friday    (4) → days_ahead = 6  → next Thursday
-    """
-    today     = today_ist()
-    days_ahead = (3 - today.weekday()) % 7
-    # If today is Thursday (days_ahead==0), expiry is today
-    # No adjustment needed — removed the incorrect `if days == 0: days = 7`
-    return today + timedelta(days=days_ahead)
+    """True if today is a Nifty weekly expiry day (usually Thursday, or shifted date)."""
+    today = today_ist()
+    exp   = nearest_expiry()
+    return exp == today
 
 def floor_to_60s(dt: datetime) -> datetime:
     return dt.replace(second=0, microsecond=0)
+
+
+# ── Expiry cache — refreshed once per day ─────────────────────
+_expiry_cache: Optional[date] = None
+_expiry_cache_date: Optional[date] = None
+
+
+def nearest_expiry(token: str = None) -> date:
+    """
+    Returns the nearest Nifty weekly expiry date.
+
+    Strategy:
+      1. Try to fetch live expiry list from Upstox (most accurate)
+         — handles all holiday shifts, special weekly expiries automatically
+      2. Fall back to calculated Thursday logic if API unavailable
+
+    The live fetch is cached for the trading day so it doesn't add API calls.
+    Pass token=None to use the token from token_manager automatically.
+    """
+    global _expiry_cache, _expiry_cache_date
+
+    today = today_ist()
+
+    # Return cached value if still valid for today
+    if _expiry_cache_date == today and _expiry_cache is not None:
+        return _expiry_cache
+
+    # Try live fetch first
+    expiry = _fetch_nearest_expiry_from_upstox(token)
+    if expiry:
+        _expiry_cache      = expiry
+        _expiry_cache_date = today
+        logger.info(f"Expiry from Upstox API: {expiry}")
+        return expiry
+
+    # Fallback: calculate next Thursday, handle holidays by shifting forward
+    expiry = _calculate_nearest_expiry(today)
+    logger.warning(f"Expiry from calculation (API unavailable): {expiry}")
+    _expiry_cache      = expiry
+    _expiry_cache_date = today
+    return expiry
+
+
+def _fetch_nearest_expiry_from_upstox(token: str = None) -> Optional[date]:
+    """
+    Fetch available expiry dates from Upstox and return the nearest one.
+    Uses /v2/option/contract endpoint.
+    """
+    try:
+        if token is None:
+            # Import here to avoid circular import
+            from utils.token_manager import get_access_token
+            token = get_access_token()
+
+        r = requests.get(
+            "https://api.upstox.com/v2/option/contract",
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+            params={"instrument_key": "NSE_INDEX|Nifty 50"},
+            timeout=8,
+        )
+
+        if r.status_code != 200:
+            logger.warning(f"Expiry fetch HTTP {r.status_code}: {r.text[:200]}")
+            return None
+
+        data = r.json().get("data", [])
+        if not data:
+            return None
+
+        today = today_ist()
+        expiry_dates = []
+
+        for item in data:
+            # Each item has an 'expiry' field as string YYYY-MM-DD
+            exp_str = item.get("expiry") or item.get("expiry_date") or item.get("expiryDate")
+            if not exp_str:
+                continue
+            try:
+                exp_date = date.fromisoformat(str(exp_str)[:10])
+                if exp_date >= today:
+                    expiry_dates.append(exp_date)
+            except Exception:
+                continue
+
+        if not expiry_dates:
+            return None
+
+        # Return the nearest (smallest) future expiry
+        return min(expiry_dates)
+
+    except Exception as e:
+        logger.warning(f"Expiry fetch failed: {e}")
+        return None
+
+
+def _calculate_nearest_expiry(today: date) -> date:
+    """
+    Fallback: calculate nearest Thursday expiry.
+    If Thursday is a holiday, shift forward to next trading day.
+    If shifted date is already past, move to next week.
+    """
+    days_ahead = (3 - today.weekday()) % 7
+    thursday   = today + timedelta(days=days_ahead)
+
+    # If Thursday is holiday, shift forward
+    if thursday in NSE_HOLIDAYS:
+        expiry = thursday + timedelta(days=1)
+        while expiry in NSE_HOLIDAYS or expiry.weekday() >= 5:
+            expiry += timedelta(days=1)
+    else:
+        expiry = thursday
+
+    # If expiry already passed today, move to next week's Thursday
+    if expiry < today:
+        next_thursday = thursday + timedelta(weeks=1)
+        if next_thursday in NSE_HOLIDAYS:
+            expiry = next_thursday + timedelta(days=1)
+            while expiry in NSE_HOLIDAYS or expiry.weekday() >= 5:
+                expiry += timedelta(days=1)
+        else:
+            expiry = next_thursday
+
+    return expiry
+
+
+def invalidate_expiry_cache():
+    """Call this at market open to force a fresh expiry fetch."""
+    global _expiry_cache, _expiry_cache_date
+    _expiry_cache      = None
+    _expiry_cache_date = None
