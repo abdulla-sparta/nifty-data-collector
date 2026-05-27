@@ -1,0 +1,1039 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NiftyCollector — Data Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:        #090c10;
+  --surface:   #0d1117;
+  --border:    #1c2333;
+  --border2:   #2d3748;
+  --green:     #00ff88;
+  --green-dim: #00c060;
+  --red:       #ff4560;
+  --amber:     #ffb800;
+  --blue:      #38bdf8;
+  --text:      #e2e8f0;
+  --muted:     #64748b;
+  --header-h:  56px;
+}
+
+* { margin:0; padding:0; box-sizing:border-box; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* ── SCANLINE OVERLAY ── */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0,255,136,0.012) 2px,
+    rgba(0,255,136,0.012) 4px
+  );
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* ── HEADER ── */
+header {
+  position: sticky;
+  top: 0;
+  height: var(--header-h);
+  background: rgba(9,12,16,0.95);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  backdrop-filter: blur(12px);
+  z-index: 100;
+}
+
+.logo {
+  font-family: 'Syne', sans-serif;
+  font-weight: 800;
+  font-size: 16px;
+  letter-spacing: 0.08em;
+  color: var(--green);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.logo-dot {
+  width: 8px; height: 8px;
+  background: var(--green);
+  border-radius: 50%;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%,100% { opacity:1; transform:scale(1); }
+  50%      { opacity:0.4; transform:scale(0.7); }
+}
+
+.header-meta {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.status-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  font-size: 11px;
+}
+
+.status-badge.live  { border-color: var(--green); color: var(--green); }
+.status-badge.off   { border-color: var(--muted); color: var(--muted); }
+
+/* ── LAYOUT ── */
+.layout {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  min-height: calc(100vh - var(--header-h));
+}
+
+/* ── SIDEBAR ── */
+aside {
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  padding: 20px 0;
+  position: sticky;
+  top: var(--header-h);
+  height: calc(100vh - var(--header-h));
+  overflow-y: auto;
+}
+
+.nav-label {
+  font-size: 9px;
+  letter-spacing: 0.15em;
+  color: var(--muted);
+  padding: 0 20px 8px;
+  text-transform: uppercase;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 20px;
+  cursor: pointer;
+  border-left: 2px solid transparent;
+  transition: all 0.15s;
+  color: var(--muted);
+  font-size: 12px;
+  user-select: none;
+}
+
+.nav-item:hover  { color: var(--text); background: rgba(255,255,255,0.03); }
+.nav-item.active { color: var(--green); border-left-color: var(--green); background: rgba(0,255,136,0.05); }
+
+.nav-icon { font-size: 14px; width: 18px; text-align: center; }
+
+.nav-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 12px 20px;
+}
+
+/* ── STATS STRIP ── */
+.stats-strip {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 1px;
+  background: var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.stat-cell {
+  background: var(--surface);
+  padding: 14px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stat-label { font-size: 9px; letter-spacing: 0.12em; color: var(--muted); text-transform: uppercase; }
+.stat-value { font-size: 22px; font-weight: 700; color: var(--text); font-family: 'Syne', sans-serif; }
+.stat-sub   { font-size: 10px; color: var(--muted); }
+.stat-value.green { color: var(--green); }
+.stat-value.amber { color: var(--amber); }
+
+/* ── MAIN ── */
+main { overflow: hidden; display: flex; flex-direction: column; }
+
+/* ── TOOLBAR ── */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  flex-wrap: wrap;
+}
+
+.toolbar-title {
+  font-family: 'Syne', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin-right: 8px;
+}
+
+select, input[type="date"], input[type="text"] {
+  background: var(--bg);
+  border: 1px solid var(--border2);
+  color: var(--text);
+  padding: 6px 10px;
+  border-radius: 3px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  outline: none;
+  transition: border 0.15s;
+}
+
+select:focus, input:focus { border-color: var(--green); }
+
+.btn {
+  padding: 6px 14px;
+  border-radius: 3px;
+  border: 1px solid;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.btn-green  { border-color: var(--green);  color: var(--green);  background: transparent; }
+.btn-green:hover  { background: var(--green);  color: var(--bg); }
+
+.btn-blue   { border-color: var(--blue);   color: var(--blue);   background: transparent; }
+.btn-blue:hover   { background: var(--blue);   color: var(--bg); }
+
+.btn-amber  { border-color: var(--amber);  color: var(--amber);  background: transparent; }
+.btn-amber:hover  { background: var(--amber);  color: var(--bg); }
+
+.btn-muted  { border-color: var(--border2); color: var(--muted); background: transparent; }
+.btn-muted:hover  { border-color: var(--text); color: var(--text); }
+
+.spacer { flex: 1; }
+
+.search-box { width: 180px; }
+
+/* ── TABLE WRAPPER ── */
+.table-wrapper {
+  flex: 1;
+  overflow: auto;
+  position: relative;
+}
+
+/* ── EXCEL TABLE ── */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11.5px;
+}
+
+.data-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.data-table th {
+  background: #111825;
+  border: 1px solid var(--border);
+  padding: 8px 12px;
+  text-align: left;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  position: relative;
+}
+
+.data-table th:hover { color: var(--text); background: #1a2233; }
+.data-table th.sort-asc::after  { content: ' ↑'; color: var(--green); }
+.data-table th.sort-desc::after { content: ' ↓'; color: var(--red); }
+
+.data-table td {
+  border: 1px solid var(--border);
+  padding: 6px 12px;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.data-table tbody tr { background: var(--bg); }
+.data-table tbody tr:nth-child(even) { background: var(--surface); }
+.data-table tbody tr:hover { background: rgba(0,255,136,0.04); }
+
+/* ── CELL TYPES ── */
+.cell-ts    { color: var(--muted); font-size: 11px; }
+.cell-sym   { color: var(--blue); font-weight: 500; }
+.cell-pos   { color: var(--green); }
+.cell-neg   { color: var(--red); }
+.cell-num   { text-align: right; font-variant-numeric: tabular-nums; }
+.cell-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 2px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+.badge-bull { background: rgba(0,255,136,0.15); color: var(--green); }
+.badge-bear { background: rgba(255,69,96,0.15);  color: var(--red); }
+.badge-mix  { background: rgba(255,184,0,0.15);  color: var(--amber); }
+.badge-t1   { background: rgba(56,189,248,0.15); color: var(--blue); }
+.badge-t2   { background: rgba(255,184,0,0.15);  color: var(--amber); }
+.badge-t3   { background: rgba(255,69,96,0.15);  color: var(--red); }
+
+/* ── LOADING / EMPTY ── */
+.loading-row td, .empty-row td {
+  text-align: center;
+  color: var(--muted);
+  padding: 40px;
+  border: 1px solid var(--border);
+}
+
+/* ── PAGINATION ── */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 24px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.page-btns { display: flex; gap: 4px; }
+.page-btn {
+  padding: 4px 10px;
+  border: 1px solid var(--border2);
+  border-radius: 2px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+}
+.page-btn:hover   { border-color: var(--green); color: var(--green); }
+.page-btn.active  { background: var(--green); color: var(--bg); border-color: var(--green); }
+.page-btn:disabled { opacity: 0.3; cursor: default; }
+
+/* ── TABS ── */
+.tab-row {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  padding: 0 24px;
+  gap: 0;
+}
+
+.tab {
+  padding: 10px 18px;
+  font-size: 11px;
+  color: var(--muted);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.tab:hover  { color: var(--text); }
+.tab.active { color: var(--green); border-bottom-color: var(--green); }
+
+/* ── MINI CHART ── */
+.sparkline { display: inline-block; vertical-align: middle; }
+
+/* ── COLLECTION LOG ── */
+.log-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+  padding: 20px 24px;
+}
+
+.log-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: border-color 0.15s;
+}
+
+.log-card:hover { border-color: var(--border2); }
+.log-card.good  { border-left: 3px solid var(--green); }
+.log-card.warn  { border-left: 3px solid var(--amber); }
+.log-card.bad   { border-left: 3px solid var(--red); }
+
+.log-date { font-family: 'Syne', sans-serif; font-weight: 600; font-size: 14px; }
+
+.log-metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.log-metric { display: flex; flex-direction: column; gap: 2px; }
+.log-metric-label { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; }
+.log-metric-value { font-size: 14px; font-weight: 500; }
+
+/* ── TOAST ── */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: var(--surface);
+  border: 1px solid var(--green);
+  color: var(--green);
+  padding: 10px 18px;
+  border-radius: 3px;
+  font-size: 12px;
+  z-index: 9998;
+  transform: translateY(80px);
+  opacity: 0;
+  transition: all 0.3s;
+}
+
+.toast.show { transform: translateY(0); opacity: 1; }
+
+/* ── SCROLLBAR ── */
+::-webkit-scrollbar       { width:6px; height:6px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius:3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+/* ── RESPONSIVE ── */
+@media (max-width: 900px) {
+  .layout { grid-template-columns: 1fr; }
+  aside { display: none; }
+  .stats-strip { grid-template-columns: repeat(2,1fr); }
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header>
+  <div class="logo">
+    <div class="logo-dot" id="liveDot"></div>
+    NIFTY COLLECTOR
+  </div>
+  <div class="header-meta">
+    <span id="clock">--:--:-- IST</span>
+    <div class="status-badge off" id="statusBadge">⬤ OFFLINE</div>
+  </div>
+</header>
+
+<div class="layout">
+
+  <!-- SIDEBAR -->
+  <aside>
+    <div class="nav-label">Tables</div>
+    <div class="nav-item active" onclick="switchView('candles')" id="nav-candles">
+      <span class="nav-icon">📊</span> Candles 60s
+    </div>
+    <div class="nav-item" onclick="switchView('oc')" id="nav-oc">
+      <span class="nav-icon">⛓</span> Option Chain
+    </div>
+    <div class="nav-item" onclick="switchView('vix')" id="nav-vix">
+      <span class="nav-icon">⚡</span> VIX
+    </div>
+    <div class="nav-item" onclick="switchView('features')" id="nav-features">
+      <span class="nav-icon">🧠</span> Feature Snapshot
+    </div>
+    <div class="nav-item" onclick="switchView('scenarios')" id="nav-scenarios">
+      <span class="nav-icon">🎯</span> Scenario Hits
+    </div>
+    <div class="nav-divider"></div>
+    <div class="nav-label">Reports</div>
+    <div class="nav-item" onclick="switchView('log')" id="nav-log">
+      <span class="nav-icon">📅</span> Collection Log
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <main>
+
+    <!-- STATS STRIP -->
+    <div class="stats-strip">
+      <div class="stat-cell">
+        <div class="stat-label">Candles Today</div>
+        <div class="stat-value green" id="statCandles">—</div>
+        <div class="stat-sub">of 2,625 expected</div>
+      </div>
+      <div class="stat-cell">
+        <div class="stat-label">OC Snapshots</div>
+        <div class="stat-value" id="statOC">—</div>
+        <div class="stat-sub">of 750 expected</div>
+      </div>
+      <div class="stat-cell">
+        <div class="stat-label">VIX (latest)</div>
+        <div class="stat-value amber" id="statVIX">—</div>
+        <div class="stat-sub" id="statVIXchg">—</div>
+      </div>
+      <div class="stat-cell">
+        <div class="stat-label">Total Rows (all time)</div>
+        <div class="stat-value" id="statTotal">—</div>
+        <div class="stat-sub" id="statDays">— trading days</div>
+      </div>
+      <div class="stat-cell">
+        <div class="stat-label">Last Tick</div>
+        <div class="stat-value green" id="statNifty">—</div>
+        <div class="stat-sub" id="statNiftyTime">—</div>
+      </div>
+    </div>
+
+    <!-- TABS -->
+    <div class="tab-row" id="tabRow">
+      <div class="tab active" onclick="switchDate('today')" id="tab-today">Today</div>
+      <div class="tab" onclick="switchDate('week')"  id="tab-week">This Week</div>
+      <div class="tab" onclick="switchDate('month')" id="tab-month">This Month</div>
+      <div class="tab" onclick="switchDate('all')"   id="tab-all">All Time</div>
+    </div>
+
+    <!-- TOOLBAR -->
+    <div class="toolbar">
+      <span class="toolbar-title" id="viewTitle">Candles 60s</span>
+      <input type="date" id="dateFrom" title="From date">
+      <input type="date" id="dateTo"   title="To date">
+      <select id="symbolFilter">
+        <option value="">All Symbols</option>
+        <option>NIFTY</option>
+        <option>RELIANCE</option>
+        <option>HDFCBANK</option>
+        <option>BHARTIARTL</option>
+        <option>ICICIBANK</option>
+        <option>SBIN</option>
+        <option>TCS</option>
+      </select>
+      <button class="btn btn-muted" onclick="loadData()">↺ Refresh</button>
+      <div class="spacer"></div>
+      <input type="text" class="search-box" id="searchBox" placeholder="Search…" oninput="filterTable()">
+      <button class="btn btn-green" onclick="downloadCSV()">⬇ CSV</button>
+      <button class="btn btn-blue"  onclick="downloadAllCSV()">⬇ All Tables CSV</button>
+    </div>
+
+    <!-- TABLE -->
+    <div class="table-wrapper" id="tableWrapper">
+      <table class="data-table" id="dataTable">
+        <thead id="tableHead"></thead>
+        <tbody id="tableBody">
+          <tr class="loading-row"><td colspan="20">Loading data…</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- LOG VIEW (hidden by default) -->
+    <div class="log-grid" id="logGrid" style="display:none"></div>
+
+    <!-- PAGINATION -->
+    <div class="pagination">
+      <span id="pageInfo">—</span>
+      <div class="page-btns" id="pageBtns"></div>
+      <span id="rowCount">—</span>
+    </div>
+
+  </main>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ============================================================
+// STATE
+// ============================================================
+let currentView     = 'candles';
+let currentDateMode = 'today';
+let allRows         = [];
+let filteredRows    = [];
+let currentPage     = 1;
+const PAGE_SIZE     = 100;
+let sortCol         = null;
+let sortDir         = 'asc';
+
+// ============================================================
+// CLOCK
+// ============================================================
+function updateClock() {
+  const now = new Date();
+  const ist = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+  const hh = String(ist.getHours()).padStart(2,'0');
+  const mm = String(ist.getMinutes()).padStart(2,'0');
+  const ss = String(ist.getSeconds()).padStart(2,'0');
+  document.getElementById('clock').textContent = `${hh}:${mm}:${ss} IST`;
+
+  // Market hours: 09:15–15:30 weekdays
+  const mins = ist.getHours() * 60 + ist.getMinutes();
+  const day  = ist.getDay();
+  const open = day >= 1 && day <= 5 && mins >= 555 && mins < 930;
+  const badge = document.getElementById('statusBadge');
+  const dot   = document.getElementById('liveDot');
+  badge.textContent = open ? '⬤ LIVE' : '⬤ OFFLINE';
+  badge.className   = 'status-badge ' + (open ? 'live' : 'off');
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ============================================================
+// VIEW / NAV SWITCHING
+// ============================================================
+function switchView(view) {
+  currentView = view;
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('nav-' + view)?.classList.add('active');
+
+  const titles = {
+    candles:   'Candles 60s',
+    oc:        'Option Chain Aggregated',
+    vix:       'India VIX',
+    features:  'Feature Snapshot',
+    scenarios: 'Scenario Hits',
+    log:       'Collection Log',
+  };
+  document.getElementById('viewTitle').textContent = titles[view] || view;
+
+  const symFilter = document.getElementById('symbolFilter');
+  symFilter.style.display = ['candles','features'].includes(view) ? '' : 'none';
+
+  const isLog = view === 'log';
+  document.getElementById('tableWrapper').style.display = isLog ? 'none' : '';
+  document.getElementById('logGrid').style.display      = isLog ? '' : 'none';
+  document.querySelector('.pagination').style.display   = isLog ? 'none' : '';
+
+  loadData();
+}
+
+function switchDate(mode) {
+  currentDateMode = mode;
+  ['today','week','month','all'].forEach(m => {
+    document.getElementById('tab-'+m).classList.toggle('active', m === mode);
+  });
+
+  const now   = new Date();
+  const today = now.toISOString().slice(0,10);
+  const fromEl = document.getElementById('dateFrom');
+  const toEl   = document.getElementById('dateTo');
+
+  if (mode === 'today') {
+    fromEl.value = today; toEl.value = today;
+  } else if (mode === 'week') {
+    const d = new Date(now); d.setDate(d.getDate() - 7);
+    fromEl.value = d.toISOString().slice(0,10); toEl.value = today;
+  } else if (mode === 'month') {
+    const d = new Date(now); d.setDate(d.getDate() - 30);
+    fromEl.value = d.toISOString().slice(0,10); toEl.value = today;
+  } else {
+    fromEl.value = ''; toEl.value = '';
+  }
+  loadData();
+}
+
+// ============================================================
+// DATA LOADING — fetches from Flask API
+// ============================================================
+async function loadData() {
+  if (currentView === 'log') { loadLog(); return; }
+
+  const from   = document.getElementById('dateFrom').value;
+  const to     = document.getElementById('dateTo').value;
+  const symbol = document.getElementById('symbolFilter').value;
+
+  showLoading();
+
+  const params = new URLSearchParams();
+  if (from)   params.append('from', from);
+  if (to)     params.append('to', to);
+  if (symbol) params.append('symbol', symbol);
+
+  try {
+    const res  = await fetch(`/api/${currentView}?${params}`);
+    const json = await res.json();
+    allRows = json.rows || [];
+    renderTable(json.columns || [], allRows);
+    loadStats();
+  } catch(e) {
+    showEmpty('Could not load data. Is the server running?');
+  }
+}
+
+async function loadStats() {
+  try {
+    const res  = await fetch('/api/stats');
+    const s    = await res.json();
+    document.getElementById('statCandles').textContent = s.candles_today?.toLocaleString() || '—';
+    document.getElementById('statOC').textContent      = s.oc_today?.toLocaleString()      || '—';
+    document.getElementById('statVIX').textContent     = s.vix_latest?.toFixed(2)          || '—';
+    document.getElementById('statVIXchg').textContent  = s.vix_pct_chg != null
+      ? (s.vix_pct_chg >= 0 ? '+' : '') + s.vix_pct_chg.toFixed(2) + '% from open' : '—';
+    document.getElementById('statTotal').textContent   = s.total_rows?.toLocaleString()    || '—';
+    document.getElementById('statDays').textContent    = (s.trading_days || '—') + ' trading days';
+    document.getElementById('statNifty').textContent   = s.nifty_ltp?.toFixed(2)           || '—';
+    document.getElementById('statNiftyTime').textContent = s.last_ts ? fmtTime(s.last_ts)  : '—';
+  } catch(e) {}
+}
+
+async function loadLog() {
+  document.getElementById('logGrid').innerHTML = '<p style="color:var(--muted);padding:20px">Loading…</p>';
+  try {
+    const res  = await fetch('/api/log');
+    const json = await res.json();
+    renderLog(json.rows || []);
+  } catch(e) {
+    document.getElementById('logGrid').innerHTML =
+      '<p style="color:var(--red);padding:20px">Could not load collection log.</p>';
+  }
+}
+
+// ============================================================
+// TABLE RENDERING
+// ============================================================
+const COL_FORMATS = {
+  ts: 'ts', symbol: 'sym',
+  open:'num', high:'num', low:'num', close:'num',
+  traded_volume:'num', cum_volume:'num', buy_vol:'num', sell_vol:'num',
+  pcr:'num', atm_pcr:'num', iv_skew:'num', vix:'num',
+  nifty_1min_chg:'chg', nifty_5min_chg:'chg',
+  reliance_1m_chg:'chg', hdfcbank_1m_chg:'chg',
+  bhartiartl_1m_chg:'chg', icicibank_1m_chg:'chg',
+  sbin_1m_chg:'chg', tcs_1m_chg:'chg',
+  vix_pct_chg:'chg', hw_divergence:'chg',
+  nifty_vol_ratio:'ratio', composite_vol_score:'ratio',
+  reliance_vol_ratio:'ratio', hdfcbank_vol_ratio:'ratio',
+  direction:'dir', vix_tier:'tier',
+  is_expiry_day:'bool', alert_sent:'bool',
+  big_move_label:'label', hw_direction:'hwdir',
+};
+
+function renderTable(columns, rows) {
+  filteredRows = [...rows];
+  currentPage  = 1;
+
+  // HEAD
+  const head = document.getElementById('tableHead');
+  head.innerHTML = '<tr>' + columns.map(c => `
+    <th onclick="sortBy('${c}')" id="th-${c}">${c.replace(/_/g,' ')}</th>
+  `).join('') + '</tr>';
+
+  renderPage();
+}
+
+function renderPage() {
+  const start = (currentPage - 1) * PAGE_SIZE;
+  const slice = filteredRows.slice(start, start + PAGE_SIZE);
+  const cols  = getColumns();
+
+  const body = document.getElementById('tableBody');
+  if (!filteredRows.length) { showEmpty('No data for selected filters.'); return; }
+
+  body.innerHTML = slice.map(row => `
+    <tr>${cols.map(c => `<td class="${cellClass(c, row[c])}">${cellVal(c, row[c])}</td>`).join('')}</tr>
+  `).join('');
+
+  renderPagination();
+}
+
+function getColumns() {
+  const ths = document.querySelectorAll('#tableHead th');
+  return [...ths].map(th => th.id.replace('th-',''));
+}
+
+function cellClass(col, val) {
+  const fmt = COL_FORMATS[col];
+  if (fmt === 'ts')  return 'cell-ts';
+  if (fmt === 'sym') return 'cell-sym';
+  if (fmt === 'num') return 'cell-num';
+  if (fmt === 'chg') return val != null ? (parseFloat(val) >= 0 ? 'cell-pos cell-num' : 'cell-neg cell-num') : 'cell-num';
+  if (fmt === 'ratio') return parseFloat(val) >= 2 ? 'cell-pos cell-num' : 'cell-num';
+  return '';
+}
+
+function cellVal(col, val) {
+  if (val === null || val === undefined) return '<span style="color:var(--muted)">—</span>';
+  const fmt = COL_FORMATS[col];
+  if (fmt === 'ts')  return `<span class="cell-ts">${fmtTime(val)}</span>`;
+  if (fmt === 'chg') {
+    const n = parseFloat(val);
+    const sign = n >= 0 ? '+' : '';
+    return `${sign}${n.toFixed(4)}%`;
+  }
+  if (fmt === 'num')   return parseFloat(val).toLocaleString();
+  if (fmt === 'ratio') return `${parseFloat(val).toFixed(2)}×`;
+  if (fmt === 'dir') {
+    const cls = val==='BULL' ? 'badge-bull' : val==='BEAR' ? 'badge-bear' : 'badge-mix';
+    return `<span class="cell-badge ${cls}">${val}</span>`;
+  }
+  if (fmt === 'tier') {
+    if (!val || val===0) return '<span style="color:var(--muted)">—</span>';
+    const cls = val===1?'badge-t1':val===2?'badge-t2':'badge-t3';
+    return `<span class="cell-badge ${cls}">T${val}</span>`;
+  }
+  if (fmt === 'bool')  return val ? '✓' : '—';
+  if (fmt === 'label') return val===1
+    ? '<span class="cell-badge badge-bull">MOVE</span>'
+    : '<span style="color:var(--muted)">—</span>';
+  if (fmt === 'hwdir') return val===1
+    ? '<span class="cell-pos">▲</span>'
+    : val===-1 ? '<span class="cell-neg">▼</span>' : '—';
+  return val;
+}
+
+function fmtTime(ts) {
+  if (!ts) return '—';
+  const d = new Date(ts);
+  return d.toLocaleString('en-IN', {
+    timeZone:'Asia/Kolkata',
+    day:'2-digit', month:'short',
+    hour:'2-digit', minute:'2-digit', second:'2-digit',
+    hour12: false,
+  });
+}
+
+// ============================================================
+// PAGINATION
+// ============================================================
+function renderPagination() {
+  const total = filteredRows.length;
+  const pages = Math.ceil(total / PAGE_SIZE);
+  const start = (currentPage-1)*PAGE_SIZE + 1;
+  const end   = Math.min(currentPage*PAGE_SIZE, total);
+
+  document.getElementById('pageInfo').textContent = `Showing ${start}–${end} of ${total.toLocaleString()}`;
+  document.getElementById('rowCount').textContent = `${total.toLocaleString()} rows`;
+
+  const btns = document.getElementById('pageBtns');
+  let html = `<button class="page-btn" onclick="goPage(${currentPage-1})" ${currentPage<=1?'disabled':''}>‹ Prev</button>`;
+
+  const range = pageRange(currentPage, pages);
+  range.forEach(p => {
+    if (p === '…') {
+      html += `<span style="padding:4px 6px;color:var(--muted)">…</span>`;
+    } else {
+      html += `<button class="page-btn ${p===currentPage?'active':''}" onclick="goPage(${p})">${p}</button>`;
+    }
+  });
+
+  html += `<button class="page-btn" onclick="goPage(${currentPage+1})" ${currentPage>=pages?'disabled':''}>Next ›</button>`;
+  btns.innerHTML = html;
+}
+
+function pageRange(cur, total) {
+  if (total <= 7) return Array.from({length:total},(_,i)=>i+1);
+  const r = [];
+  if (cur > 3)       { r.push(1); if(cur>4) r.push('…'); }
+  for (let i=Math.max(1,cur-1); i<=Math.min(total,cur+1); i++) r.push(i);
+  if (cur < total-2) { if(cur<total-3) r.push('…'); r.push(total); }
+  return r;
+}
+
+function goPage(p) {
+  const pages = Math.ceil(filteredRows.length / PAGE_SIZE);
+  if (p < 1 || p > pages) return;
+  currentPage = p;
+  renderPage();
+  document.getElementById('tableWrapper').scrollTop = 0;
+}
+
+// ============================================================
+// SORT
+// ============================================================
+function sortBy(col) {
+  if (sortCol === col) { sortDir = sortDir==='asc'?'desc':'asc'; }
+  else { sortCol = col; sortDir = 'asc'; }
+
+  document.querySelectorAll('#tableHead th').forEach(th => {
+    th.classList.remove('sort-asc','sort-desc');
+  });
+  const th = document.getElementById('th-'+col);
+  if (th) th.classList.add('sort-'+sortDir);
+
+  filteredRows.sort((a,b) => {
+    let av = a[col], bv = b[col];
+    if (av===null) av = sortDir==='asc' ? Infinity : -Infinity;
+    if (bv===null) bv = sortDir==='asc' ? Infinity : -Infinity;
+    if (!isNaN(av) && !isNaN(bv)) return sortDir==='asc' ? av-bv : bv-av;
+    return sortDir==='asc'
+      ? String(av).localeCompare(String(bv))
+      : String(bv).localeCompare(String(av));
+  });
+  currentPage = 1;
+  renderPage();
+}
+
+// ============================================================
+// SEARCH FILTER
+// ============================================================
+function filterTable() {
+  const q = document.getElementById('searchBox').value.toLowerCase();
+  filteredRows = q
+    ? allRows.filter(r => Object.values(r).some(v => String(v).toLowerCase().includes(q)))
+    : [...allRows];
+  currentPage = 1;
+  renderPage();
+}
+
+// ============================================================
+// LOG VIEW
+// ============================================================
+function renderLog(rows) {
+  if (!rows.length) {
+    document.getElementById('logGrid').innerHTML =
+      '<p style="color:var(--muted);padding:20px">No collection log entries yet.</p>';
+    return;
+  }
+  document.getElementById('logGrid').innerHTML = rows.map(r => {
+    const gaps  = r.gaps_detected || 0;
+    const cls   = gaps === 0 ? 'good' : gaps < 5 ? 'warn' : 'bad';
+    const pct   = r.candles_written ? Math.round(r.candles_written/2625*100) : 0;
+    return `
+    <div class="log-card ${cls}">
+      <div class="log-date">${r.trade_date || '—'}</div>
+      <div class="log-metrics">
+        <div class="log-metric">
+          <div class="log-metric-label">Candles</div>
+          <div class="log-metric-value" style="color:var(--green)">${(r.candles_written||0).toLocaleString()}</div>
+        </div>
+        <div class="log-metric">
+          <div class="log-metric-label">Coverage</div>
+          <div class="log-metric-value" style="color:${pct>=90?'var(--green)':pct>=70?'var(--amber)':'var(--red)'}">${pct}%</div>
+        </div>
+        <div class="log-metric">
+          <div class="log-metric-label">OC Snaps</div>
+          <div class="log-metric-value">${(r.oc_snaps_written||0).toLocaleString()}</div>
+        </div>
+        <div class="log-metric">
+          <div class="log-metric-label">Gaps</div>
+          <div class="log-metric-value" style="color:${gaps===0?'var(--green)':'var(--red)'}">${gaps}</div>
+        </div>
+      </div>
+      <div style="font-size:10px;color:var(--muted)">${r.notes || 'No notes'}</div>
+    </div>`;
+  }).join('');
+}
+
+// ============================================================
+// CSV DOWNLOAD — current view
+// ============================================================
+function downloadCSV() {
+  if (!filteredRows.length) { showToast('No data to download'); return; }
+  const cols = getColumns();
+  const lines = [
+    cols.join(','),
+    ...filteredRows.map(r => cols.map(c => {
+      const v = r[c];
+      if (v === null || v === undefined) return '';
+      const s = String(v);
+      return s.includes(',') || s.includes('"') || s.includes('\n')
+        ? `"${s.replace(/"/g,'""')}"` : s;
+    }).join(','))
+  ];
+  triggerDownload(lines.join('\n'), `nifty_${currentView}_${today()}.csv`);
+  showToast(`Downloaded ${filteredRows.length.toLocaleString()} rows`);
+}
+
+// ============================================================
+// ALL TABLES CSV — zipped server-side
+// ============================================================
+async function downloadAllCSV() {
+  showToast('Preparing all tables…');
+  try {
+    const from = document.getElementById('dateFrom').value;
+    const to   = document.getElementById('dateTo').value;
+    const params = new URLSearchParams();
+    if (from) params.append('from', from);
+    if (to)   params.append('to', to);
+
+    const res  = await fetch(`/api/export_all?${params}`);
+    const blob = await res.blob();
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `nifty_all_${today()}.zip`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('Download ready!');
+  } catch(e) {
+    showToast('Export failed — check server', true);
+  }
+}
+
+function triggerDownload(content, filename) {
+  const blob = new Blob([content], {type:'text/csv'});
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
+function today() { return new Date().toISOString().slice(0,10); }
+
+// ============================================================
+// HELPERS
+// ============================================================
+function showLoading() {
+  document.getElementById('tableBody').innerHTML =
+    '<tr class="loading-row"><td colspan="50">⟳ Loading…</td></tr>';
+}
+
+function showEmpty(msg) {
+  document.getElementById('tableBody').innerHTML =
+    `<tr class="empty-row"><td colspan="50">${msg}</td></tr>`;
+  document.getElementById('pageInfo').textContent = '—';
+  document.getElementById('pageBtns').innerHTML   = '';
+  document.getElementById('rowCount').textContent = '0 rows';
+}
+
+function showToast(msg, err=false) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.style.borderColor = err ? 'var(--red)' : 'var(--green)';
+  t.style.color       = err ? 'var(--red)' : 'var(--green)';
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+// ============================================================
+// INIT
+// ============================================================
+switchDate('today');
+loadStats();
+setInterval(loadStats, 30000);   // refresh stats every 30s
+</script>
+</body>
+</html>
