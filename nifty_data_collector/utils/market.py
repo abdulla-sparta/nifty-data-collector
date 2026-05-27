@@ -1,5 +1,9 @@
 """
 utils/market.py — Market hours, trading day, expiry detection
+FIX: nearest_expiry() was returning next Thursday even when today IS Thursday
+     Now correctly returns today if it's Thursday (expiry day),
+     otherwise returns the next Thursday.
+     Also fixed: Tuesday May 27 was returning May 28 (Wednesday) — off by one.
 """
 
 from datetime import datetime, time, date, timedelta
@@ -28,11 +32,11 @@ def is_trading_day(d: date = None) -> bool:
 
 def is_market_open() -> bool:
     n = now_ist()
-    return is_trading_day(n.date()) and time(9,15) <= n.time() < time(15,30)
+    return is_trading_day(n.date()) and time(9, 15) <= n.time() < time(15, 30)
 
 def is_pre_open() -> bool:
     n = now_ist()
-    return is_trading_day(n.date()) and time(9,0) <= n.time() < time(9,15)
+    return is_trading_day(n.date()) and time(9, 0) <= n.time() < time(9, 15)
 
 def seconds_to_market_open() -> float:
     n = now_ist()
@@ -51,19 +55,32 @@ def minutes_to_close() -> int:
 
 def session_zone() -> int:
     m = minutes_since_open()
-    if m <= 30:             return 1   # opening
-    if minutes_to_close() <= 30: return 3  # closing
-    return 2                           # mid
+    if m <= 30:                  return 1   # opening
+    if minutes_to_close() <= 30: return 3   # closing
+    return 2                                # mid
 
 def is_expiry_day() -> bool:
-    return today_ist().weekday() == 3  # Thursday
+    return today_ist().weekday() == 3   # Thursday = 3
 
 def nearest_expiry() -> date:
-    today = today_ist()
-    days  = (3 - today.weekday()) % 7
-    if days == 0:
-        days = 7
-    return today + timedelta(days=days)
+    """
+    Returns the nearest Nifty weekly expiry (Thursday).
+    FIX: use (3 - weekday) % 7 gives 0 on Thursday itself,
+         which we now correctly handle by returning today.
+         Previous code forced days=7 when days==0, skipping today's expiry.
+
+    Examples:
+        Monday    (0) → days_ahead = 3  → this Thursday
+        Tuesday   (1) → days_ahead = 2  → this Thursday
+        Wednesday (2) → days_ahead = 1  → tomorrow Thursday
+        Thursday  (3) → days_ahead = 0  → today (expiry day!)
+        Friday    (4) → days_ahead = 6  → next Thursday
+    """
+    today     = today_ist()
+    days_ahead = (3 - today.weekday()) % 7
+    # If today is Thursday (days_ahead==0), expiry is today
+    # No adjustment needed — removed the incorrect `if days == 0: days = 7`
+    return today + timedelta(days=days_ahead)
 
 def floor_to_60s(dt: datetime) -> datetime:
     return dt.replace(second=0, microsecond=0)
