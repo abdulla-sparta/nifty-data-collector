@@ -3,25 +3,30 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>NiftyCollector — Data Dashboard (Light)</title>
+<title>NiftyCollector — Data Dashboard</title>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
 <style>
 :root {
-  /* Light theme palette */
-  --bg:        #f1f5f9;
+  /* Light premium palette */
+  --bg:        #f0f4f8;
   --surface:   #ffffff;
+  --surface2:  #f8fafc;
   --border:    #e2e8f0;
   --border2:   #cbd5e1;
-  --green:     #10b981;
-  --green-dim: #059669;
-  --red:       #ef4444;
-  --amber:     #f59e0b;
-  --blue:      #3b82f6;
+  --green:     #059669;
+  --green-dim: #047857;
+  --green-glow:rgba(5,150,105,0.12);
+  --red:       #dc2626;
+  --amber:     #d97706;
+  --blue:      #2563eb;
+  --purple:    #7c3aed;
   --text:      #0f172a;
-  --muted:     #475569;
-  --header-h:  56px;
-  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-  --shadow-md: 0 1px 3px 0 rgb(0 0 0 / 0.1);
+  --muted:     #64748b;
+  --muted2:    #94a3b8;
+  --header-h:  58px;
+  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.08);
+  --shadow-md: 0 4px 12px 0 rgb(0 0 0 / 0.1);
+  --shadow-green: 0 0 20px rgba(5,150,105,0.1);
 }
 
 * { margin:0; padding:0; box-sizing:border-box; }
@@ -35,7 +40,7 @@ body {
   overflow-x: hidden;
 }
 
-/* ── SOFT SCANLINE (very subtle, light) ── */
+/* ── SUBTLE SCANLINE (very light) ── */
 body::before {
   content: '';
   position: fixed;
@@ -43,9 +48,9 @@ body::before {
   background: repeating-linear-gradient(
     0deg,
     transparent,
-    transparent 2px,
-    rgba(0,0,0,0.02) 2px,
-    rgba(0,0,0,0.02) 4px
+    transparent 3px,
+    rgba(0,0,0,0.012) 3px,
+    rgba(0,0,0,0.012) 4px
   );
   pointer-events: none;
   z-index: 9999;
@@ -61,10 +66,10 @@ header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 24px;
-  backdrop-filter: blur(12px);
+  padding: 0 28px;
+  backdrop-filter: blur(20px);
   z-index: 100;
-  box-shadow: var(--shadow-sm);
+  box-shadow: 0 1px 0 var(--border), var(--shadow-md);
 }
 
 .logo {
@@ -128,7 +133,7 @@ aside {
   top: var(--header-h);
   height: calc(100vh - var(--header-h));
   overflow-y: auto;
-  box-shadow: var(--shadow-sm);
+  box-shadow: 1px 0 0 var(--border), var(--shadow-sm);
 }
 
 .nav-label {
@@ -200,7 +205,6 @@ main { overflow: hidden; display: flex; flex-direction: column; background: var(
   border-bottom: 1px solid var(--border);
   background: var(--surface);
   flex-wrap: wrap;
-  box-shadow: var(--shadow-sm);
 }
 
 .toolbar-title {
@@ -212,7 +216,7 @@ main { overflow: hidden; display: flex; flex-direction: column; background: var(
 }
 
 select, input[type="date"], input[type="text"] {
-  background: white;
+  background: #ffffff;
   border: 1px solid var(--border2);
   color: var(--text);
   padding: 6px 10px;
@@ -222,8 +226,9 @@ select, input[type="date"], input[type="text"] {
   outline: none;
   transition: all 0.15s;
 }
+select option { background: #ffffff; color: var(--text); }
 
-select:focus, input:focus { border-color: var(--green); box-shadow: 0 0 0 2px rgba(16,185,129,0.2); }
+select:focus, input:focus { border-color: var(--green); box-shadow: 0 0 0 2px rgba(5,150,105,0.15); }
 
 .btn {
   padding: 6px 14px;
@@ -237,20 +242,20 @@ select:focus, input:focus { border-color: var(--green); box-shadow: 0 0 0 2px rg
   align-items: center;
   gap: 6px;
   white-space: nowrap;
-  background: white;
+  background: #ffffff;
 }
 
-.btn-green  { border-color: var(--green);  color: var(--green);  background: white; }
-.btn-green:hover  { background: var(--green);  color: white; border-color: var(--green); }
+.btn-green  { border-color: var(--green);  color: var(--green);  background: #f0fdf4; }
+.btn-green:hover  { background: var(--green);  color: #fff; border-color: var(--green); }
 
-.btn-blue   { border-color: var(--blue);   color: var(--blue);   background: white; }
-.btn-blue:hover   { background: var(--blue);   color: white; border-color: var(--blue); }
+.btn-blue   { border-color: var(--blue);   color: var(--blue);   background: #eff6ff; }
+.btn-blue:hover   { background: var(--blue);   color: #fff; border-color: var(--blue); }
 
-.btn-amber  { border-color: var(--amber);  color: var(--amber);  background: white; }
-.btn-amber:hover  { background: var(--amber);  color: white; border-color: var(--amber); }
+.btn-amber  { border-color: var(--amber);  color: var(--amber);  background: #fffbeb; }
+.btn-amber:hover  { background: var(--amber);  color: #fff; border-color: var(--amber); }
 
-.btn-muted  { border-color: var(--border2); color: var(--muted); background: white; }
-.btn-muted:hover  { border-color: var(--text); color: var(--text); background: #f8fafc; }
+.btn-muted  { border-color: var(--border2); color: var(--muted); background: #ffffff; }
+.btn-muted:hover  { border-color: var(--muted2); color: var(--text); background: #f8fafc; }
 
 .spacer { flex: 1; }
 
@@ -268,7 +273,7 @@ select:focus, input:focus { border-color: var(--green); box-shadow: 0 0 0 2px rg
   width: 100%;
   border-collapse: collapse;
   font-size: 11.5px;
-  background: white;
+  background: #ffffff;
 }
 
 .data-table thead {
@@ -302,15 +307,15 @@ select:focus, input:focus { border-color: var(--green); box-shadow: 0 0 0 2px rg
   padding: 6px 12px;
   white-space: nowrap;
   color: var(--text);
-  background-color: white;
+  background-color: #ffffff;
 }
 
 .data-table tbody tr:nth-child(even) td { background-color: #fafcff; }
 .data-table tbody tr:hover td { background: #f0fdf4; }
 
-/* ── CELL TYPES (light contrast) ── */
+/* ── CELL TYPES ── */
 .cell-ts    { color: var(--muted); font-size: 11px; }
-.cell-sym   { color: #0f6b9e; font-weight: 500; }
+.cell-sym   { color: #1d4ed8; font-weight: 500; }
 .cell-pos   { color: var(--green); font-weight: 500; }
 .cell-neg   { color: var(--red); font-weight: 500; }
 .cell-num   { text-align: right; font-variant-numeric: tabular-nums; }
@@ -324,9 +329,9 @@ select:focus, input:focus { border-color: var(--green); box-shadow: 0 0 0 2px rg
 }
 .badge-bull { background: #d1fae5; color: #065f46; }
 .badge-bear { background: #fee2e2; color: #991b1b; }
-.badge-mix  { background: #fed7aa; color: #9a3412; }
+.badge-mix  { background: #fef3c7; color: #92400e; }
 .badge-t1   { background: #dbeafe; color: #1e40af; }
-.badge-t2   { background: #fed7aa; color: #9a3412; }
+.badge-t2   { background: #fef3c7; color: #92400e; }
 .badge-t3   { background: #fee2e2; color: #991b1b; }
 
 /* ── LOADING / EMPTY ── */
@@ -335,7 +340,7 @@ select:focus, input:focus { border-color: var(--green); box-shadow: 0 0 0 2px rg
   color: var(--muted);
   padding: 40px;
   border: 1px solid var(--border);
-  background: white;
+  background: #ffffff;
 }
 
 /* ── PAGINATION ── */
@@ -356,14 +361,14 @@ select:focus, input:focus { border-color: var(--green); box-shadow: 0 0 0 2px rg
   padding: 4px 10px;
   border: 1px solid var(--border2);
   border-radius: 6px;
-  background: white;
+  background: #ffffff;
   color: var(--muted);
   cursor: pointer;
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
 }
 .page-btn:hover   { border-color: var(--green); color: var(--green); background: #ecfdf5; }
-.page-btn.active  { background: var(--green); color: white; border-color: var(--green); }
+.page-btn.active  { background: var(--green); color: #fff; border-color: var(--green); font-weight: 700; }
 .page-btn:disabled { opacity: 0.4; cursor: default; background: #f1f5f9; }
 
 /* ── TABS ── */
@@ -389,7 +394,7 @@ select:focus, input:focus { border-color: var(--green); box-shadow: 0 0 0 2px rg
 .tab:hover  { color: var(--text); background: #fafcff; }
 .tab.active { color: var(--green); border-bottom-color: var(--green); font-weight: 600; }
 
-/* ── COLLECTION LOG (light cards) ── */
+/* ── COLLECTION LOG (dark cards) ── */
 .log-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -398,7 +403,7 @@ select:focus, input:focus { border-color: var(--green); box-shadow: 0 0 0 2px rg
 }
 
 .log-card {
-  background: white;
+  background: #ffffff;
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 16px;
@@ -471,6 +476,7 @@ select:focus, input:focus { border-color: var(--green); box-shadow: 0 0 0 2px rg
   </div>
   <div class="header-meta">
     <span id="clock">--:--:-- IST</span>
+    <a href="/login" style="display:flex;align-items:center;gap:6px;padding:5px 12px;border-radius:6px;border:1px solid var(--border2);color:var(--muted);font-size:11px;text-decoration:none;background:var(--surface2);transition:all 0.15s;" onmouseover="this.style.borderColor='var(--green)';this.style.color='var(--green)'" onmouseout="this.style.borderColor='var(--border2)';this.style.color='var(--muted)'">🔑 Login</a>
     <div class="status-badge off" id="statusBadge">⬤ OFFLINE</div>
   </div>
 </header>

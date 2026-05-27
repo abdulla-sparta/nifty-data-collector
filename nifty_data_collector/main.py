@@ -2,7 +2,7 @@
 main.py — NiftyCollector Railway Entry Point
 
 Single process runs:
-  Flask server  → /callback (Upstox OAuth), /health, /status
+  Flask server  → /callback (Upstox OAuth), /health, /status, /login
   Scheduler     → 08:45 login link, 15:45 backup, daily cycle
   Collectors    → WebSocket ticks, OC poller, Candle writer
 """
@@ -10,7 +10,7 @@ Single process runs:
 import os, sys, logging, time, threading
 from datetime import datetime, date
 import pytz, schedule
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, redirect
 
 from db.schema import run as create_tables
 from utils.market import is_trading_day, seconds_to_market_open, today_ist, is_market_open
@@ -23,9 +23,7 @@ from collector.oc_poller import OCPoller
 from collector.candle_writer import CandleWriter
 from backup.daily_backup import run_backup
 
-# Near top with imports
 from dashboard import dashboard_bp
-
 
 
 # ── Logging ───────────────────────────────────────────────────
@@ -39,7 +37,6 @@ IST    = pytz.timezone("Asia/Kolkata")
 
 # ── Flask ─────────────────────────────────────────────────────
 app = Flask(__name__)
-# Right after app = Flask(__name__)
 app.register_blueprint(dashboard_bp)
 
 # Globals — collector handles
@@ -52,10 +49,9 @@ _collecting = False
 
 @app.route("/")
 def home():
-    return {
-        "status": "running",
-        "service": "NiftyCollector"
-    }
+    """Redirect root to dashboard."""
+    return redirect("/dashboard")
+
 
 @app.route("/health")
 def health():
@@ -74,6 +70,67 @@ def status():
         "oc_snaps_today": oc,
         "ts":             datetime.now(IST).isoformat(),
     })
+
+
+@app.route("/login")
+def login_page():
+    """
+    Auto-generate Upstox login URL from environment variables.
+    No manual API key entry needed — just visit /login and click.
+    """
+    from config import UPSTOX_API_KEY, UPSTOX_REDIRECT_URI
+    auth_url = (
+        f"https://api.upstox.com/v2/login/authorization/dialog"
+        f"?response_type=code"
+        f"&client_id={UPSTOX_API_KEY}"
+        f"&redirect_uri={UPSTOX_REDIRECT_URI}"
+    )
+    token_status = "✅ Token already saved for today" if has_token_today() else "❌ No token yet — login required"
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NiftyCollector — Login</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Syne:wght@700;800&display=swap" rel="stylesheet">
+<style>
+  :root {{
+    --bg: #0a0e1a; --surface: #111827; --border: #1e293b;
+    --green: #10b981; --text: #e2e8f0; --muted: #64748b;
+  }}
+  * {{ margin:0; padding:0; box-sizing:border-box; }}
+  body {{ background:var(--bg); color:var(--text); font-family:'JetBrains Mono',monospace;
+          display:flex; align-items:center; justify-content:center; min-height:100vh; }}
+  .card {{ background:var(--surface); border:1px solid var(--border); border-radius:12px;
+           padding:48px; width:420px; text-align:center; }}
+  .logo {{ font-family:'Syne',sans-serif; font-weight:800; font-size:22px;
+           color:var(--green); letter-spacing:0.08em; margin-bottom:8px; }}
+  .sub {{ color:var(--muted); font-size:12px; margin-bottom:32px; }}
+  .status {{ font-size:13px; color:var(--muted); margin-bottom:28px;
+             background:#0a0e1a; border:1px solid var(--border);
+             border-radius:6px; padding:12px 16px; }}
+  .btn {{ display:inline-block; background:var(--green); color:#fff;
+          font-family:'JetBrains Mono',monospace; font-size:14px; font-weight:700;
+          padding:14px 32px; border-radius:8px; text-decoration:none;
+          letter-spacing:0.05em; transition:opacity 0.15s; }}
+  .btn:hover {{ opacity:0.85; }}
+  .note {{ color:var(--muted); font-size:11px; margin-top:20px; line-height:1.6; }}
+  a.back {{ color:var(--green); font-size:11px; text-decoration:none; display:block; margin-top:24px; }}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">NIFTY COLLECTOR</div>
+  <div class="sub">Daily Upstox Authorization</div>
+  <div class="status">{token_status}</div>
+  <a href="{auth_url}" class="btn">🔐 Authorize Upstox</a>
+  <p class="note">Tap the button above on your phone.<br>
+  You'll be redirected back here automatically.<br>
+  Token is saved to the database for the day.</p>
+  <a href="/dashboard" class="back">← Back to Dashboard</a>
+</div>
+</body>
+</html>"""
 
 
 @app.route("/callback")
@@ -102,7 +159,14 @@ def upstox_callback():
         if is_market_open():
             threading.Thread(target=_start_collectors, daemon=True).start()
 
-        return "<h2>✅ Login successful! You can close this tab.</h2>"
+        return """<!DOCTYPE html>
+<html><head><meta charset="UTF-8">
+<meta http-equiv="refresh" content="3;url=/dashboard">
+<style>body{{background:#0a0e1a;color:#10b981;font-family:monospace;
+display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column;gap:16px;}}
+a{{color:#10b981;}}</style></head>
+<body><h2>✅ Login successful!</h2><p>Token saved. Redirecting to dashboard…</p>
+<a href="/dashboard">Go now →</a></body></html>"""
 
     except Exception as e:
         logger.error(f"Token exchange error: {e}")
