@@ -50,6 +50,13 @@ _cw: CandleWriter | None           = None
 _collecting = False
 
 
+@app.route("/")
+def home():
+    return {
+        "status": "running",
+        "service": "NiftyCollector"
+    }
+
 @app.route("/health")
 def health():
     return jsonify({"status": "ok", "ts": datetime.now(IST).isoformat()})
